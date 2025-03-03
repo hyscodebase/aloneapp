@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#4285f4">
+<title>프로필 관리</title>
+<link rel="manifest" href="#" id="manifest-placeholder">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="container">
+<header>
+    <h1>프로필 관리</h1>
+</header>
+
+<div class="add-profile">
+    <h2>새 프로필 추가</h2>
+    <form id="profile-form">
+    <div class="form-group">
+        <label for="profile-name">이름</label>
+        <input type="text" id="profile-name" required>
+    </div>
+    
+    <div class="form-group">
+        <label for="profile-image-url">프로필 이미지 URL</label>
+        <input type="url" id="profile-image-url" placeholder="https://example.com/image.jpg">
+        <div>
+        <img id="img-preview" class="img-preview" alt="미리보기">
+        </div>
+    </div>
+    
+    <div class="form-group">
+        <label for="profile-description">설명</label>
+        <textarea id="profile-description" rows="3" required></textarea>
+    </div>
+    
+    <div class="form-group">
+        <label for="profile-link">프로필 링크</label>
+        <input type="url" id="profile-link" placeholder="https://example.com/profile" required>
+    </div>
+    
+    <button type="submit">추가하기</button>
+    </form>
+</div>
+
+<div class="profiles-list" id="profiles-container">
+    <div class="empty-state">
+    <p>등록된 프로필이 없습니다.</p>
+    <p>위 양식을 통해 새 프로필을 추가해보세요.</p>
+    </div>
+</div>
+</div>
+
+<div id="toast" class="toast"></div>
+
+<script>
+// 매니페스트 생성 및 설정
+const generateManifest = () => {
+    const manifest = {
+    name: "프로필 관리",
+    short_name: "프로필",
+    description: "프로필 목록을 관리하는 PWA 앱입니다",
+    start_url: "/",
+    display: "standalone",
+    background_color: "#f5f5f5",
+    theme_color: "#4285f4",
+    icons: [
+        {
+        src: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Cpath fill='%234285f4' d='M256 0C114.6 0 0 114.6 0 256s114.6 256 256 256s256-114.6 256-256S397.4 0 256 0zM256 128c39.77 0 72 32.23 72 72S295.8 272 256.1 272c-39.76 0-72-32.23-72-72S216.2 128 256 128zM256 448c-52.93 0-100.9-21.53-135.7-56.29C136.5 349.9 176.5 320 224 320h64c47.54 0 87.54 29.88 103.7 71.71C356.9 426.5 308.9 448 256 448z'/%3E%3C/svg%3E",
+        sizes: "512x512",
+        type: "image/svg+xml",
+        purpose: "any"
+        }
+    ]
+    };
+    
+    const manifestString = JSON.stringify(manifest);
+    const manifestBlob = new Blob([manifestString], {type: 'application/json'});
+    const manifestURL = URL.createObjectURL(manifestBlob);
+    
+    document.getElementById('manifest-placeholder').href = manifestURL;
+};
+
+// 서비스 워커 등록
+const registerServiceWorker = async () => {
+    if ('serviceWorker' in navigator) {
+    try {
+        // 인라인 서비스 워커 생성
+        const swContent = `
+        self.addEventListener('install', (event) => {
+            self.skipWaiting();
+        });
+        
+        self.addEventListener('activate', (event) => {
+            return self.clients.claim();
+        });
+        
+        self.addEventListener('fetch', (event) => {
+            event.respondWith(fetch(event.request));
+        });
+        `;
+        
+        const swBlob = new Blob([swContent], {type: 'text/javascript'});
+        const swURL = URL.createObjectURL(swBlob);
+        
+        const registration = await navigator.serviceWorker.register(swURL);
+        console.log('Service Worker 등록 성공:', registration);
+    } catch (error) {
+        console.error('Service Worker 등록 실패:', error);
+    }
+    }
+};
+
+// 프로필 데이터 관리
+class ProfileManager {
+    constructor() {
+    this.profiles = JSON.parse(localStorage.getItem('profiles')) || [];
+    this.container = document.getElementById('profiles-container');
+    this.form = document.getElementById('profile-form');
+    this.imageUrlInput = document.getElementById('profile-image-url');
+    this.imagePreview = document.getElementById('img-preview');
+    
+    this.bindEvents();
+    this.render();
+    }
+    
+    bindEvents() {
+    this.form.addEventListener('submit', (e) => {
+        e.preventDefault();
+        this.addProfile();
+    });
+    
+    this.imageUrlInput.addEventListener('input', () => {
+        this.updateImagePreview();
+    });
+    }
+    
+    updateImagePreview() {
+    const imageUrl = this.imageUrlInput.value.trim();
+    if (imageUrl) {
+        this.imagePreview.src = imageUrl;
+        this.imagePreview.style.display = 'block';
+        
+        this.imagePreview.onerror = () => {
+        this.imagePreview.style.display = 'none';
+        this.showToast('이미지 URL이 올바르지 않습니다.');
+        };
+    } else {
+        this.imagePreview.style.display = 'none';
+    }
+    }
+    
+    addProfile() {
+    const name = document.getElementById('profile-name').value.trim();
+    const imageUrl = document.getElementById('profile-image-url').value.trim();
+    const description = document.getElementById('profile-description').value.trim();
+    const link = document.getElementById('profile-link').value.trim();
+    
+    const newProfile = {
+        id: Date.now().toString(),
+        name,
+        imageUrl,
+        description,
+        link
+    };
+    
+    this.profiles.push(newProfile);
+    this.saveProfiles();
+    this.render();
+    this.resetForm();
+    this.showToast('프로필이 추가되었습니다.');
+    }
+    
+    deleteProfile(id) {
+    this.profiles = this.profiles.filter(profile => profile.id !== id);
+    this.saveProfiles();
+    this.render();
+    this.showToast('프로필이 삭제되었습니다.');
+    }
+    
+    saveProfiles() {
+    localStorage.setItem('profiles', JSON.stringify(this.profiles));
+    }
+    
+    resetForm() {
+    this.form.reset();
+    this.imagePreview.style.display = 'none';
+    }
+    
+    showToast(message) {
+    const toast = document.getElementById('toast');
+    toast.textContent = message;
+    toast.classList.add('show');
+    
+    setTimeout(() => {
+        toast.classList.remove('show');
+    }, 3000);
+    }
+    
+    render() {
+    if (this.profiles.length === 0) {
+        this.container.innerHTML = `
+        <div class="empty-state">
+            <p>등록된 프로필이 없습니다.</p>
+            <p>위 양식을 통해 새 프로필을 추가해보세요.</p>
+        </div>
+        `;
+        return;
+    }
+    
+    this.container.innerHTML = '';
+    
+    this.profiles.forEach(profile => {
+        const profileElement = document.createElement('div');
+        profileElement.className = 'profile-item';
+        
+        let profileImageHtml;
+        if (profile.imageUrl) {
+        profileImageHtml = `<img src="${profile.imageUrl}" alt="${profile.name}" class="profile-image" onerror="this.onerror=null; this.parentNode.innerHTML='<div class=\\'profile-image-placeholder\\'><i class=\\'fas fa-user\\'></i></div>'">`;
+        } else {
+        profileImageHtml = `<div class="profile-image-placeholder"><i class="fas fa-user"></i></div>`;
+        }
+        
+        profileElement.innerHTML = `
+        ${profileImageHtml}
+        <div class="profile-details">
+            <div class="profile-name">${profile.name}</div>
+            <div class="profile-description">${profile.description}</div>
+        </div>
+        <div class="profile-actions">
+            <a href="${profile.link}" target="_blank" rel="noopener">
+            <button>프로필 보기</button>
+            </a>
+            <button class="delete-btn" data-id="${profile.id}" style="background-color: #f44336;">
+            <i class="fas fa-trash"></i>
+            </button>
+        </div>
+        `;
+        
+        this.container.appendChild(profileElement);
+    });
+    
+    // 삭제 버튼 이벤트 리스너 추가
+    document.querySelectorAll('.delete-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+        const id = e.currentTarget.dataset.id;
+        this.deleteProfile(id);
+        });
+    });
+    }
+}
+
+// 페이지 로드 시 실행
+document.addEventListener('DOMContentLoaded', () => {
+    generateManifest();
+    registerServiceWorker();
+    new ProfileManager();
+});
+
+// PWA 설치 프롬프트 처리
+let deferredPrompt;
+
+window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    deferredPrompt = e;
+    
+    // 필요하다면 여기에 설치 버튼 표시 로직 추가
+});
+</script>
+</body>
+</html>
